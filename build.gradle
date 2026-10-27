@@ -1,0 +1,50 @@
+subprojects {
+  apply plugin: 'java'
+  java { toolchain { languageVersion = JavaLanguageVersion.of(21) } }
+  repositories { mavenCentral() }
+}
+
+project(':agent') {
+  dependencies {
+    // Spring comes from the app at runtime; the agent jar itself stays dependency-free.
+    def boot = platform('org.springframework.boot:spring-boot-dependencies:4.1.0')
+    compileOnly boot
+    compileOnly 'org.springframework.boot:spring-boot-autoconfigure'
+    compileOnly 'org.springframework:spring-webmvc'
+    compileOnly 'jakarta.servlet:jakarta.servlet-api'
+    compileOnly 'org.junit.platform:junit-platform-launcher' // jblaze test runs JUnit in the test JVM
+    testImplementation boot
+    testImplementation 'org.springframework.boot:spring-boot-autoconfigure'
+    testImplementation 'org.junit.jupiter:junit-jupiter'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+  }
+  test { useJUnitPlatform() }
+  jar {
+    archiveFileName = 'agent.jar'
+    manifest { attributes 'Premain-Class': 'jblaze.agent.Agent', 'Can-Redefine-Classes': 'true' }
+  }
+}
+
+project(':cli') {
+  configurations { processors }
+  dependencies {
+    implementation project(':agent') // jblaze.classfile
+    testImplementation 'org.junit.jupiter:junit-jupiter:5.11.4'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+    // real annotation processors for CompilerTest
+    processors 'org.projectlombok:lombok:1.18.48'
+    processors 'org.mapstruct:mapstruct:1.6.3'
+    processors 'org.mapstruct:mapstruct-processor:1.6.3'
+  }
+  test {
+    useJUnitPlatform()
+    def processors = configurations.processors
+    inputs.files(processors)
+    doFirst { systemProperty 'jblaze.test.processors', processors.asPath }
+  }
+  jar {
+    archiveFileName = 'jblaze.jar'
+    manifest { attributes 'Main-Class': 'jblaze.Main' }
+    from(project(':agent').sourceSets.main.output) { include 'jblaze/classfile/**' }
+  }
+}

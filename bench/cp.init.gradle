@@ -1,0 +1,9 @@
+// Prints the main runtime classpath (excludes developmentOnly, so no DevTools).
+allprojects {
+  plugins.withId('java') {
+    tasks.register('benchCp') {
+      def cp = sourceSets.main.runtimeClasspath
+      doLast { println cp.asPath }
+    }
+  }
+}

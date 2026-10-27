@@ -1,0 +1,11 @@
+build/
+.gradle/
+.run/
+
+# spring-petclinic for the benchmarks: bench/setup-demo.sh recreates it
+/demo/
+
+# benchmark and end-to-end run output
+/bench/*.log
+/bench/.props.bak
+/samples/*.log

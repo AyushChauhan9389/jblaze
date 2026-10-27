@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# jblaze launcher. Set JBLAZE_JAVA to a JetBrains Runtime for structural swaps + HotswapAgent's Spring refresh.
+DIR=$(cd "$(dirname "$(readlink -f "$0")")" && pwd)
+[[ -f $DIR/cli/build/libs/jblaze.jar && -f $DIR/agent/build/libs/agent.jar ]] || (cd "$DIR" && ./gradlew -q jar) >&2
+exec "${JBLAZE_JAVA:-java}" -Djblaze.home="$DIR" -Djblaze.agent="$DIR/agent/build/libs/agent.jar" -jar "$DIR/cli/build/libs/jblaze.jar" "$@"

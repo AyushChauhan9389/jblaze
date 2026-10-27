@@ -1,0 +1,10 @@
+plugins { id 'java-library' }
+
+dependencies {
+  compileOnly 'org.projectlombok:lombok:1.18.48'
+  annotationProcessor 'org.projectlombok:lombok:1.18.48'
+  api 'org.mapstruct:mapstruct:1.6.3'
+  annotationProcessor 'org.mapstruct:mapstruct-processor:1.6.3'
+  // no junit-platform-launcher on purpose: jblaze test resolves it (./gradlew :core:test would need it)
+  testImplementation 'org.junit.jupiter:junit-jupiter:6.0.3'
+}

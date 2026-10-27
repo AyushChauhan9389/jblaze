@@ -1,0 +1,83 @@
+// Injected by jblaze: builds every module once and describes the Spring Boot app and the modules it uses, as
+// properties in -Pjblaze.out. -Pjblaze.app=<project path> picks the app when there are several;
+// -Pjblaze.tests=true also builds and describes the test source sets (for `jblaze test`).
+rootProject {
+  tasks.register('jblazeInfo') {
+    notCompatibleWithConfigurationCache('reads other projects at execution time')
+    def javaProjects = allprojects.findAll { it.plugins.hasPlugin('java') }
+    def wanted = findProperty('jblaze.app')
+    def withTests = findProperty('jblaze.tests') == 'true'
+    def apps = javaProjects.findAll { it.plugins.hasPlugin('org.springframework.boot') && (!wanted || it.path == wanted) }
+    javaProjects.each { dependsOn it.tasks.named(withTests ? 'testClasses' : 'classes') }
+    apps.each { app -> if (app.tasks.findByName('resolveMainClassName')) dependsOn app.tasks.named('resolveMainClassName') }
+    def out = file(findProperty('jblaze.out'))
+    doLast {
+      if (apps.size() != 1) {
+        throw new GradleException("jblaze: expected one Spring Boot app, found ${apps*.path}; pick one: jblaze run <project path>")
+      }
+      def app = apps[0]
+      // like bootRun: developmentOnly dependencies (DevTools, Docker Compose support...) are on the classpath
+      def runtime = app.sourceSets.main.runtimeClasspath.files +
+        (['developmentOnly', 'testAndDevelopmentOnly'].collectMany { app.configurations.findByName(it)?.files ?: [] })
+      // DevTools lets jblaze restart the app in place (~0.5 s instead of a new JVM); add it when missing
+      if (findProperty('jblaze.devtools') != 'false' && !runtime.any { it.name.startsWith('spring-boot-devtools') }) {
+        def boot = runtime.find { it.name ==~ /spring-boot-\d.*\.jar/ }
+        if (boot) {
+          def version = (boot.name =~ /spring-boot-(.+)\.jar/)[0][1]
+          runtime += app.configurations.detachedConfiguration(
+            app.dependencies.create("org.springframework.boot:spring-boot-devtools:$version")).files
+        }
+      }
+      def modules = javaProjects.findAll { p ->
+        p == app || runtime.contains(p.tasks.jar.archiveFile.get().asFile) ||
+          runtime.contains(p.sourceSets.main.java.destinationDirectory.get().asFile)
+      }
+      def p = new Properties()
+      p['app'] = app.path
+      p['mainClass'] = app.tasks.findByName('bootRun')?.mainClass?.getOrNull() ?: ''
+      p['runtimeClasspath'] = runtime.collect { it.path }.join(File.pathSeparator)
+      p['modules'] = modules*.path.join(',')
+      def describe = { String k, sourceSet, compile ->
+        p[k + 'classesDir'] = sourceSet.java.destinationDirectory.get().asFile.path
+        p[k + 'resourcesDir'] = sourceSet.output.resourcesDir.path
+        p[k + 'javaSrc'] = sourceSet.java.srcDirs.join(File.pathSeparator)
+        p[k + 'resourcesSrc'] = sourceSet.resources.srcDirs.join(File.pathSeparator)
+        p[k + 'compileClasspath'] = sourceSet.compileClasspath.asPath
+        p[k + 'processorPath'] = sourceSet.annotationProcessorPath.asPath
+        p[k + 'compilerArgs'] = compile.options.compilerArgs.join('\n')
+        p[k + 'release'] = compile.options.release.getOrNull()?.toString() ?: ''
+        p[k + 'encoding'] = compile.options.encoding ?: ''
+      }
+      modules.each { m ->
+        def k = "module.${m.path}."
+        describe(k, m.sourceSets.main, m.tasks.compileJava)
+        p[k + 'jar'] = m.tasks.jar.archiveFile.get().asFile.path
+        p[k + 'dependsOn'] = m.configurations.compileClasspath.allDependencies
+          .withType(ProjectDependency).collect { it.path }.join(',')
+        def test = m.sourceSets.findByName('test')
+        def task = m.tasks.findByName('test')
+        if (withTests && test && task) {
+          def t = k + 'test.'
+          describe(t, test, m.tasks.compileTestJava)
+          def testOutput = test.output.classesDirs.files + [test.output.resourcesDir]
+          def testRuntime = test.runtimeClasspath.files.findAll { !testOutput.contains(it) }
+          // Gradle supplies the JUnit Platform launcher itself, so builds often don't declare it
+          if (!testRuntime.any { it.name.startsWith('junit-platform-launcher') }) {
+            def engine = testRuntime.find { it.name ==~ /junit-platform-engine-.*\.jar/ }
+            if (engine) {
+              def version = (engine.name =~ /junit-platform-engine-(.+)\.jar/)[0][1]
+              testRuntime += m.configurations.detachedConfiguration(
+                m.dependencies.create("org.junit.platform:junit-platform-launcher:$version")).files
+            }
+          }
+          p[t + 'runtimeClasspath'] = testRuntime.collect { it.path }.join(File.pathSeparator)
+          p[t + 'jvmArgs'] = (task.jvmArgs ?: []).join('\n')
+          p[t + 'systemProperties'] = task.systemProperties.collect { key, value -> "$key=$value" }.join('\n')
+          p[t + 'workingDir'] = task.workingDir.path
+        }
+      }
+      out.parentFile.mkdirs()
+      out.withWriter { p.store(it, null) }
+    }
+  }
+}
